@@ -19,47 +19,46 @@ namespace WpfApp3
         private Polyline currentLine;
         private SolidColorBrush currentColor = Brushes.Black;
         private double currentThickness = 5;
-        private List openImageWindows = new List();
+        private List<ImageWindow> openImageWindows = new List<ImageWindow>();
 
-        private Rectangle selectedShape; // Выбранная фигура для перемещения/масштабирования
-        private Point shapeStartPoint; // Начальная позиция фигуры при перемещении
-        private Point mouseStartPoint; // Начальная позиция мыши при перемещении/масштабировании
-        private bool isResizing = false;  // Флаг, указывающий, что идет изменение размера
-        private Ellipse[] resizeHandles = new Ellipse[4]; // Маркеры изменения размера (углы)
-        private const double ResizeHandleSize = 10;  // Размер маркеров изменения размера
+        private Rectangle selectedShape;
+        private Point shapeStartPoint;
+        private Point mouseStartPoint;
+        private bool isResizing = false;
+        private Ellipse[] resizeHandles = new Ellipse[4];
+        private const double ResizeHandleSize = 10;
+        private double zoomFactor = 1.0; // Коэффициент масштабирования
 
         public MainWindow()
         {
             InitializeComponent();
             LoadGallery();
+            DrawingCanvas.MouseWheel += DrawingCanvas_MouseWheel; // Подписываемся на событие MouseWheel
         }
 
         private void Canvas_MouseDown(object sender, MouseButtonEventArgs e)
         {
             if (selectedShape != null)
             {
-                // Если кликнули на маркер изменения размера
                 if (resizeHandles.Any(h => h.IsMouseOver))
                 {
                     isResizing = true;
                     mouseStartPoint = e.GetPosition(DrawingCanvas);
-                    DrawingCanvas.CaptureMouse(); // Захватываем мышь для Canvas
-                    return; // Прерываем обработку, чтобы не перехватывать событие перемещения фигуры
+                    DrawingCanvas.CaptureMouse();
+                    return;
                 }
 
-                // Если кликнули по фигуре для перемещения
                 if (selectedShape.IsMouseOver)
                 {
                     shapeStartPoint = new Point(Canvas.GetLeft(selectedShape), Canvas.GetTop(selectedShape));
                     mouseStartPoint = e.GetPosition(DrawingCanvas);
-                    DrawingCanvas.CaptureMouse(); // Захватываем мышь для Canvas
-                    return; // Прерываем обработку рисования
+                    DrawingCanvas.CaptureMouse();
+                    return;
                 }
 
-                ClearSelection(); // Снимаем выделение, если кликнули вне фигуры и маркеров
+                ClearSelection();
             }
 
-            // Если ни одна фигура не выбрана, начинаем рисование, как обычно
             isDrawing = true;
             currentLine = new Polyline
             {
@@ -78,7 +77,7 @@ namespace WpfApp3
                 return;
             }
 
-            if (DrawingCanvas.IsMouseCaptured && selectedShape != null) // Перемещение фигуры
+            if (DrawingCanvas.IsMouseCaptured && selectedShape != null)
             {
                 MoveShape(e.GetPosition(DrawingCanvas));
                 return;
@@ -123,26 +122,24 @@ namespace WpfApp3
             Canvas.SetTop(rect, 50);
             DrawingCanvas.Children.Add(rect);
 
-            SelectShape(rect); // Выбираем добавленную фигуру сразу
+            SelectShape(rect);
         }
 
         private void SelectShape(Rectangle shape)
         {
-            ClearSelection(); // Снимаем выделение с предыдущей фигуры
+            ClearSelection();
 
             selectedShape = shape;
 
-            // Создаем и отображаем маркеры изменения размера
             CreateResizeHandles();
 
-            Canvas.SetZIndex(selectedShape, 1); // Поднимаем фигуру на передний план
+            Canvas.SetZIndex(selectedShape, 1);
         }
 
         private void ClearSelection()
         {
             selectedShape = null;
 
-            // Удаляем маркеры изменения размера
             if (resizeHandles[0] != null)
             {
                 foreach (var handle in resizeHandles)
@@ -151,9 +148,9 @@ namespace WpfApp3
                 }
             }
         }
+
         private void CreateResizeHandles()
         {
-            // Создаем маркеры изменения размера
             for (int i = 0; i < 4; i++)
             {
                 resizeHandles[i] = new Ellipse
@@ -166,14 +163,16 @@ namespace WpfApp3
                 };
 
                 DrawingCanvas.Children.Add(resizeHandles[i]);
-                Canvas.SetZIndex(resizeHandles[i], 2); // Маркеры поверх фигуры
+                Canvas.SetZIndex(resizeHandles[i], 2);
             }
 
-            UpdateResizeHandlePositions(); // Располагаем маркеры
+            UpdateResizeHandlePositions();
         }
 
         private void UpdateResizeHandlePositions()
         {
+            if (selectedShape == null) return; // Добавлено для проверки, что фигура выбрана
+
             double left = Canvas.GetLeft(selectedShape);
             double top = Canvas.GetTop(selectedShape);
             double width = selectedShape.Width;
@@ -191,6 +190,7 @@ namespace WpfApp3
             Canvas.SetLeft(resizeHandles[3], left - ResizeHandleSize / 2);
             Canvas.SetTop(resizeHandles[3], top + height - ResizeHandleSize / 2);
         }
+
         private void MoveShape(Point currentMousePosition)
         {
             double deltaX = currentMousePosition.X - mouseStartPoint.X;
@@ -199,12 +199,11 @@ namespace WpfApp3
             Canvas.SetLeft(selectedShape, shapeStartPoint.X + deltaX);
             Canvas.SetTop(selectedShape, shapeStartPoint.Y + deltaY);
 
-            UpdateResizeHandlePositions();  // Перемещаем маркеры вместе с фигурой
+            UpdateResizeHandlePositions();
         }
 
         private void ResizeShape(Point currentMousePosition)
         {
-            // Определяем, какой маркер используется для изменения размера
             int handleIndex = -1;
             for (int i = 0; i < 4; i++)
             {
@@ -215,49 +214,63 @@ namespace WpfApp3
                 }
             }
 
-            if (handleIndex == -1) return;  // Никакой маркер не выбран
+            if (handleIndex == -1) return;
 
             double left = Canvas.GetLeft(selectedShape);
             double top = Canvas.GetTop(selectedShape);
             double width = selectedShape.Width;
             double height = selectedShape.Height;
 
-            // Вычисляем новые размеры и позицию на основе перемещения мыши и выбранного маркера
             switch (handleIndex)
             {
-                case 0: // Верхний левый
+                case 0:
                     width -= (currentMousePosition.X - mouseStartPoint.X);
                     height -= (currentMousePosition.Y - mouseStartPoint.Y);
                     left = currentMousePosition.X;
                     top = currentMousePosition.Y;
                     break;
-                case 1: // Верхний правый
+                case 1:
                     width = currentMousePosition.X - left;
                     height -= (currentMousePosition.Y - mouseStartPoint.Y);
                     top = currentMousePosition.Y;
                     break;
-                case 2: // Нижний правый
+                case 2:
                     width = currentMousePosition.X - left;
                     height = currentMousePosition.Y - top;
                     break;
-                case 3: // Нижний левый
+                case 3:
                     width -= (currentMousePosition.X - mouseStartPoint.X);
                     height = currentMousePosition.Y - top;
                     left = currentMousePosition.X;
                     break;
             }
-            //Применяем изменения с проверками на минимальный размер
+
             selectedShape.Width = Math.Max(0, width);
             selectedShape.Height = Math.Max(0, height);
             Canvas.SetLeft(selectedShape, left);
             Canvas.SetTop(selectedShape, top);
 
-            mouseStartPoint = currentMousePosition; // Обновляем для следующего перемещения
+            mouseStartPoint = currentMousePosition;
             UpdateResizeHandlePositions();
         }
 
-        // Остальные методы (ChangeColor, ColorPicker_SelectedColorChanged, ThicknessChanged, ClearCanvas, SaveDrawing, LoadGallery, GalleryListBox_SelectionChanged, DeleteDrawing, CreateFolder, MoveDrawing) остаются примерно такими же, как и раньше.
-        // Возможно, в LoadGallery нужно учитывать Rectangles, если их тоже сохранять.
+        // Обработчик события MouseWheel для масштабирования фигуры
+        private void DrawingCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (selectedShape != null && Keyboard.IsKeyDown(Key.LeftCtrl))
+            {
+                double zoomDelta = e.Delta > 0 ? 0.1 : -0.1; // Чувствительность масштабирования
+                zoomFactor += zoomDelta;
+                zoomFactor = Math.Max(0.1, Math.Min(3.0, zoomFactor)); // Ограничиваем масштаб
+
+                selectedShape.Width *= (1 + zoomDelta);
+                selectedShape.Height *= (1 + zoomDelta);
+
+                UpdateResizeHandlePositions(); // Обновляем позицию маркеров
+                e.Handled = true; // Предотвращаем дальнейшую обработку события
+            }
+        }
+
         private void ChangeColor(object sender, RoutedEventArgs e)
         {
             currentColor = ((Button)sender).Background as SolidColorBrush;
@@ -279,22 +292,20 @@ namespace WpfApp3
         private void ClearCanvas(object sender, RoutedEventArgs e)
         {
             DrawingCanvas.Children.Clear();
-            ClearSelection(); // Очищаем выделение при очистке холста
+            ClearSelection();
         }
 
         private async void SaveDrawing(object sender, RoutedEventArgs e)
         {
             RenderTargetBitmap renderBitmap = new RenderTargetBitmap((int)DrawingCanvas.ActualWidth, (int)DrawingCanvas.ActualHeight, 96d, 96d, PixelFormats.Pbgra32);
-            // Скрываем маркеры перед рендерингом
             foreach (var handle in resizeHandles)
             {
-                if(handle != null) handle.Visibility = Visibility.Collapsed;
+                if (handle != null) handle.Visibility = Visibility.Collapsed;
             }
             renderBitmap.Render(DrawingCanvas);
-            // Возвращаем маркеры после рендеринга
             foreach (var handle in resizeHandles)
             {
-               if(handle != null) handle.Visibility = Visibility.Visible;
+                if (handle != null) handle.Visibility = Visibility.Visible;
             }
 
             string folderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Gallery");
@@ -314,6 +325,7 @@ namespace WpfApp3
             }
             LoadGallery();
         }
+
         private void LoadGallery()
         {
             GalleryListBox.Items.Clear();
@@ -426,6 +438,7 @@ namespace WpfApp3
             }
         }
     }
+
     public class GalleryItem
     {
         public Image Image { get; set; }
