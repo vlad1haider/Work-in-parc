@@ -1,15 +1,24 @@
-Серьезность	Код	Описание	Проект	Файл	Строка	Состояние подавления
-Ошибка	CS1061	"List" не содержит определения "Add", и не удалось найти доступный метод расширения "Add", принимающий тип "List" в качестве первого аргумента (возможно, пропущена директива using или ссылка на сборку).	WpfApp3	C:\Users\student\source\repos\WpfApp3\WpfApp3\MainWindow.xaml.cs	351	Активные
+<Window x:Class="WpfSketchApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:WpfSketchApp"
+        mc:Ignorable="d"
+        Title="WPF Sketch App" Height="450" Width="800" Closing="Window_Closing">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
+        <StackPanel Width="150" Margin="5">
+            <Button Content="Новый скетч" Margin="5" Click="NewSketchButton_Click"/>
+            <Button Content="Добавить квадрат" Margin="5" Click="AddSquareButton_Click"/>
+            <ListBox x:Name="SketchList" ItemsSource="{Binding Sketches}" DisplayMemberPath="Name" SelectedItem="{Binding CurrentSketch}" SelectionChanged="SketchList_SelectionChanged"/>
+        </StackPanel>
 
-Серьезность	Код	Описание	Проект	Файл	Строка	Состояние подавления
-Ошибка	CS1061	"List" не содержит определения "Remove", и не удалось найти доступный метод расширения "Remove", принимающий тип "List" в качестве первого аргумента (возможно, пропущена директива using или ссылка на сборку).	WpfApp3	C:\Users\student\source\repos\WpfApp3\WpfApp3\MainWindow.xaml.cs	352	Активные
-
-
-Серьезность	Код	Описание	Проект	Файл	Строка	Состояние подавления
-Ошибка	CS1061	"List" не содержит определения "ToList", и не удалось найти доступный метод расширения "ToList", принимающий тип "List" в качестве первого аргумента (возможно, пропущена директива using или ссылка на сборку).	WpfApp3	C:\Users\student\source\repos\WpfApp3\WpfApp3\MainWindow.xaml.cs	368	Активные
-
-
-
-Серьезность	Код	Описание	Проект	Файл	Строка	Состояние подавления
-Ошибка	CS1061	"List" не содержит определения "Remove", и не удалось найти доступный метод расширения "Remove", принимающий тип "List" в качестве первого аргумента (возможно, пропущена директива using или ссылка на сборку).	WpfApp3	C:\Users\student\source\repos\WpfApp3\WpfApp3\MainWindow.xaml.cs	373	Активные
+        <Canvas x:Name="MainCanvas" Grid.Column="1" Background="LightGray" ClipToBounds="True"
+                MouseDown="Canvas_MouseDown" MouseMove="Canvas_MouseMove" MouseUp="Canvas_MouseUp"/>
+    </Grid>
+</Window>
