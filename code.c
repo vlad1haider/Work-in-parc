@@ -1,447 +1,506 @@
 sharp
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using System.Collections.Generic;
-using System.Windows.Threading;
-using System.Linq;
 
-namespace WpfApp3
+namespace WpfSketchApp
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, INotifyPropertyChanged
     {
-        private bool isDrawing = false;
-        private Polyline currentLine;
-        private SolidColorBrush currentColor = Brushes.Black;
-        private double currentThickness = 5;
-        private List<ImageWindow> openImageWindows = new List<ImageWindow>();
-
-        private Rectangle selectedShape;
-        private Point shapeStartPoint;
-        private Point mouseStartPoint;
-        private bool isResizing = false;
-        private Ellipse[] resizeHandles = new Ellipse[4];
+        private const string DataFilePath = "sketches.json";
+        private const double DefaultSquareSize = 100;
         private const double ResizeHandleSize = 10;
-        private double zoomFactor = 1.0; // Коэффициент масштабирования
+
+        private ObservableCollection<Sketch> _sketches = new ObservableCollection<Sketch>();
+        private Sketch _currentSketch;
+        private Figure _selectedFigure;
+        private Point _startPoint;
+        private bool _isDragging;
+        private ResizeHandle _resizingHandle;
+
+        public ObservableCollection<Sketch> Sketches
+        {
+            get { return _sketches; }
+            set
+            {
+                _sketches = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public Sketch CurrentSketch
+        {
+            get { return _currentSketch; }
+            set
+            {
+                _currentSketch = value;
+                OnPropertyChanged();
+                UpdateCanvas();
+            }
+        }
+
+        public Figure SelectedFigure
+        {
+            get { return _selectedFigure; }
+            set
+            {
+                if (_selectedFigure != value)
+                {
+                    if (_selectedFigure != null)
+                    {
+                        HideResizeHandles();
+                    }
+
+                    _selectedFigure = value;
+                    OnPropertyChanged();
+
+                    if (_selectedFigure != null)
+                    {
+                        ShowResizeHandles();
+                    }
+                }
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
 
         public MainWindow()
         {
             InitializeComponent();
-            LoadGallery();
-            DrawingCanvas.MouseWheel += DrawingCanvas_MouseWheel; // Подписываемся на событие MouseWheel
+            DataContext = this;
+            LoadData();
+
+            if (Sketches.Any())
+            {
+                CurrentSketch = Sketches.First();
+            }
+            else
+            {
+                CreateNewSketch();
+            }
+        }
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        private void LoadData()
+        {
+            if (File.Exists(DataFilePath))
+            {
+                try
+                {
+                    string jsonString = File.ReadAllText(DataFilePath);
+                    var data = JsonSerializer.Deserialize<SketchData>(jsonString);
+                    if (data?.Sketches != null)
+                    {
+                        Sketches = new ObservableCollection<Sketch>(data.Sketches);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Ошибка при загрузке данных: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            else
+            {
+                Sketches = new ObservableCollection<Sketch>();
+            }
+        }
+
+        private void SaveData()
+        {
+            try
+            {
+                var data = new SketchData { Sketches = Sketches.ToList() };
+                string jsonString = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(DataFilePath, jsonString);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при сохранении данных: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void AddSquareButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (CurrentSketch == null) return;
+
+            var newFigure = new Figure
+            {
+                Id = Guid.NewGuid(),
+                Type = "figure",
+                Position = new Point { X = 50, Y = 50 },
+                Size = new Size { Width = DefaultSquareSize, Height = DefaultSquareSize },
+                Color = "#4287f5"
+            };
+
+            CurrentSketch.Components.Add(newFigure);
+            UpdateCanvas();
         }
 
         private void Canvas_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (selectedShape != null)
+            if (e.Source is Rectangle)
             {
-                if (resizeHandles.Any(h => h.IsMouseOver))
-                {
-                    isResizing = true;
-                    mouseStartPoint = e.GetPosition(DrawingCanvas);
-                    DrawingCanvas.CaptureMouse();
-                    return;
-                }
-
-                if (selectedShape.IsMouseOver)
-                {
-                    shapeStartPoint = new Point(Canvas.GetLeft(selectedShape), Canvas.GetTop(selectedShape));
-                    mouseStartPoint = e.GetPosition(DrawingCanvas);
-                    DrawingCanvas.CaptureMouse();
-                    return;
-                }
-
-                ClearSelection();
+                SelectedFigure = (e.Source as Rectangle).DataContext as Figure;
+                _startPoint = e.GetPosition(MainCanvas);
+                _isDragging = true;
+                MainCanvas.CaptureMouse();
             }
-
-            isDrawing = true;
-            currentLine = new Polyline
+            else if (e.Source is Ellipse resizeHandle)
             {
-                Stroke = currentColor,
-                StrokeThickness = currentThickness,
-                Points = new PointCollection { e.GetPosition(DrawingCanvas) }
-            };
-            DrawingCanvas.Children.Add(currentLine);
+                SelectedFigure = (resizeHandle.DataContext as Figure);
+                _resizingHandle = (ResizeHandle)Enum.Parse(typeof(ResizeHandle), resizeHandle.Tag.ToString());
+                _startPoint = e.GetPosition(MainCanvas);
+                _isDragging = true;
+                MainCanvas.CaptureMouse();
+            }
+            else
+            {
+                SelectedFigure = null;
+            }
         }
 
         private void Canvas_MouseMove(object sender, MouseEventArgs e)
         {
-            if (isResizing && selectedShape != null)
+            if (_isDragging && SelectedFigure != null)
             {
-                ResizeShape(e.GetPosition(DrawingCanvas));
-                return;
-            }
+                Point currentPoint = e.GetPosition(MainCanvas);
+                double deltaX = currentPoint.X - _startPoint.X;
+                double deltaY = currentPoint.Y - _startPoint.Y;
 
-            if (DrawingCanvas.IsMouseCaptured && selectedShape != null)
-            {
-                MoveShape(e.GetPosition(DrawingCanvas));
-                return;
-            }
+                if (_resizingHandle == ResizeHandle.None)
+                {
+                    // Движение фигуры
+                    SelectedFigure.Position = new Point
+                    {
+                        X = SelectedFigure.Position.X + deltaX,
+                        Y = SelectedFigure.Position.Y + deltaY
+                    };
+                    _startPoint = currentPoint;
+                }
+                else
+                {
+                    // Изменение размера фигуры
+                    ResizeFigure(deltaX, deltaY);
+                    _startPoint = currentPoint;
+                }
 
-            if (isDrawing)
-            {
-                currentLine.Points.Add(e.GetPosition(DrawingCanvas));
+                UpdateCanvas();
             }
         }
 
         private void Canvas_MouseUp(object sender, MouseButtonEventArgs e)
         {
-            if (isResizing)
-            {
-                isResizing = false;
-                DrawingCanvas.ReleaseMouseCapture();
-                return;
-            }
-
-            if (DrawingCanvas.IsMouseCaptured && selectedShape != null)
-            {
-                DrawingCanvas.ReleaseMouseCapture();
-                return;
-            }
-
-            isDrawing = false;
+            _isDragging = false;
+            MainCanvas.ReleaseMouseCapture();
+            _resizingHandle = ResizeHandle.None;
+            SaveData();
         }
 
-        private void AddShapeButton_Click(object sender, RoutedEventArgs e)
+        private void UpdateCanvas()
         {
-            Rectangle rect = new Rectangle
+            MainCanvas.Children.Clear();
+
+            if (CurrentSketch?.Components != null)
             {
-                Width = 100,
-                Height = 75,
-                Fill = Brushes.LightBlue,
-                Stroke = Brushes.Black,
-                StrokeThickness = 2
+                foreach (var figure in CurrentSketch.Components)
+                {
+                    Rectangle rect = new Rectangle
+                    {
+                        Width = figure.Size.Width,
+                        Height = figure.Size.Height,
+                        Fill = (SolidColorBrush)new BrushConverter().ConvertFromString(figure.Color),
+                        DataContext = figure
+                    };
+
+                    rect.MouseDown += Canvas_MouseDown;
+                    rect.MouseMove += Canvas_MouseMove;
+                    rect.MouseUp += Canvas_MouseUp;
+
+                    Canvas.SetLeft(rect, figure.Position.X);
+                    Canvas.SetTop(rect, figure.Position.Y);
+
+                    MainCanvas.Children.Add(rect);
+                }
+
+                if (SelectedFigure != null)
+                {
+                    ShowResizeHandles();
+                }
+            }
+        }
+
+        private void ResizeFigure(double deltaX, double deltaY)
+        {
+            if (SelectedFigure == null) return;
+
+            switch (_resizingHandle)
+            {
+                case ResizeHandle.TopLeft:
+                    SelectedFigure.Position = new Point
+                    {
+                        X = SelectedFigure.Position.X + deltaX,
+                        Y = SelectedFigure.Position.Y + deltaY
+                    };
+                    SelectedFigure.Size = new Size
+                    {
+                        Width = Math.Max(0, SelectedFigure.Size.Width - deltaX),
+                        Height = Math.Max(0, SelectedFigure.Size.Height - deltaY)
+                    };
+                    break;
+
+                case ResizeHandle.TopRight:
+                    SelectedFigure.Position = new Point
+                    {
+                        Y = SelectedFigure.Position.Y + deltaY
+                    };
+                    SelectedFigure.Size = new Size
+                    {
+                        Width = Math.Max(0, SelectedFigure.Size.Width + deltaX),
+                        Height = Math.Max(0, SelectedFigure.Size.Height - deltaY)
+                    };
+                    break;
+
+                case ResizeHandle.BottomLeft:
+                    SelectedFigure.Position = new Point
+                    {
+                        X = SelectedFigure.Position.X + deltaX,
+                    };
+                    SelectedFigure.Size = new Size
+                    {
+                        Width = Math.Max(0, SelectedFigure.Size.Width - deltaX),
+                        Height = Math.Max(0, SelectedFigure.Size.Height + deltaY)
+                    };
+                    break;
+
+                case ResizeHandle.BottomRight:
+                    SelectedFigure.Size = new Size
+                    {
+                        Width = Math.Max(0, SelectedFigure.Size.Width + deltaX),
+                        Height = Math.Max(0, SelectedFigure.Size.Height + deltaY)
+                    };
+                    break;
+            }
+        }
+
+        private void ShowResizeHandles()
+        {
+            if (SelectedFigure == null) return;
+
+            AddResizeHandle(SelectedFigure, ResizeHandle.TopLeft);
+            AddResizeHandle(SelectedFigure, ResizeHandle.TopRight);
+            AddResizeHandle(SelectedFigure, ResizeHandle.BottomLeft);
+            AddResizeHandle(SelectedFigure, ResizeHandle.BottomRight);
+        }
+
+        private void HideResizeHandles()
+        {
+            var handlesToRemove = MainCanvas.Children.OfType<Ellipse>().ToList();
+            foreach (var handle in handlesToRemove)
+            {
+                MainCanvas.Children.Remove(handle);
+            }
+        }
+
+        private void AddResizeHandle(Figure figure, ResizeHandle handleType)
+        {
+            Ellipse handle = new Ellipse
+            {
+                Width = ResizeHandleSize,
+                Height = ResizeHandleSize,
+                Fill = Brushes.Black,
+                DataContext = figure,
+                Tag = handleType.ToString()
             };
 
-            Canvas.SetLeft(rect, 50);
-            Canvas.SetTop(rect, 50);
-            DrawingCanvas.Children.Add(rect);
+            handle.MouseDown += Canvas_MouseDown;
+            handle.MouseMove += Canvas_MouseMove;
+            handle.MouseUp += Canvas_MouseUp;
 
-            SelectShape(rect);
-        }
+            double left = 0;
+            double top = 0;
 
-        private void SelectShape(Rectangle shape)
-        {
-            ClearSelection();
-
-            selectedShape = shape;
-
-            CreateResizeHandles();
-
-            Canvas.SetZIndex(selectedShape, 1);
-        }
-
-        private void ClearSelection()
-        {
-            selectedShape = null;
-
-            if (resizeHandles[0] != null)
+            switch (handleType)
             {
-                foreach (var handle in resizeHandles)
-                {
-                    DrawingCanvas.Children.Remove(handle);
-                }
-            }
-        }
-
-        private void CreateResizeHandles()
-        {
-            for (int i = 0; i < 4; i++)
-            {
-                resizeHandles[i] = new Ellipse
-                {
-                    Width = ResizeHandleSize,
-                    Height = ResizeHandleSize,
-                    Fill = Brushes.Red,
-                    Stroke = Brushes.Black,
-                    StrokeThickness = 1
-                };
-
-                DrawingCanvas.Children.Add(resizeHandles[i]);
-                Canvas.SetZIndex(resizeHandles[i], 2);
-            }
-
-            UpdateResizeHandlePositions();
-        }
-
-        private void UpdateResizeHandlePositions()
-        {
-            if (selectedShape == null) return; // Добавлено для проверки, что фигура выбрана
-
-            double left = Canvas.GetLeft(selectedShape);
-            double top = Canvas.GetTop(selectedShape);
-            double width = selectedShape.Width;
-            double height = selectedShape.Height;
-
-            Canvas.SetLeft(resizeHandles[0], left - ResizeHandleSize / 2);
-            Canvas.SetTop(resizeHandles[0], top - ResizeHandleSize / 2);
-
-            Canvas.SetLeft(resizeHandles[1], left + width - ResizeHandleSize / 2);
-            Canvas.SetTop(resizeHandles[1], top - ResizeHandleSize / 2);
-
-            Canvas.SetLeft(resizeHandles[2], left + width - ResizeHandleSize / 2);
-            Canvas.SetTop(resizeHandles[2], top + height - ResizeHandleSize / 2);
-
-            Canvas.SetLeft(resizeHandles[3], left - ResizeHandleSize / 2);
-            Canvas.SetTop(resizeHandles[3], top + height - ResizeHandleSize / 2);
-        }
-
-        private void MoveShape(Point currentMousePosition)
-        {
-            double deltaX = currentMousePosition.X - mouseStartPoint.X;
-            double deltaY = currentMousePosition.Y - mouseStartPoint.Y;
-
-            Canvas.SetLeft(selectedShape, shapeStartPoint.X + deltaX);
-            Canvas.SetTop(selectedShape, shapeStartPoint.Y + deltaY);
-
-            UpdateResizeHandlePositions();
-        }
-
-        private void ResizeShape(Point currentMousePosition)
-        {
-            int handleIndex = -1;
-            for (int i = 0; i < 4; i++)
-            {
-                if (resizeHandles[i].IsMouseOver)
-                {
-                    handleIndex = i;
+                case ResizeHandle.TopLeft:
+                    left = figure.Position.X - ResizeHandleSize / 2;
+                    top = figure.Position.Y - ResizeHandleSize / 2;
                     break;
-                }
-            }
-
-            if (handleIndex == -1) return;
-
-            double left = Canvas.GetLeft(selectedShape);
-            double top = Canvas.GetTop(selectedShape);
-            double width = selectedShape.Width;
-            double height = selectedShape.Height;
-
-            switch (handleIndex)
-            {
-                case 0:
-                    width -= (currentMousePosition.X - mouseStartPoint.X);
-                    height -= (currentMousePosition.Y - mouseStartPoint.Y);
-                    left = currentMousePosition.X;
-                    top = currentMousePosition.Y;
+                case ResizeHandle.TopRight:
+                    left = figure.Position.X + figure.Size.Width - ResizeHandleSize / 2;
+                    top = figure.Position.Y - ResizeHandleSize / 2;
                     break;
-                case 1:
-                    width = currentMousePosition.X - left;
-                    height -= (currentMousePosition.Y - mouseStartPoint.Y);
-                    top = currentMousePosition.Y;
+                case ResizeHandle.BottomLeft:
+                    left = figure.Position.X - ResizeHandleSize / 2;
+                    top = figure.Position.Y + figure.Size.Height - ResizeHandleSize / 2;
                     break;
-                case 2:
-                    width = currentMousePosition.X - left;
-                    height = currentMousePosition.Y - top;
-                    break;
-                case 3:
-                    width -= (currentMousePosition.X - mouseStartPoint.X);
-                    height = currentMousePosition.Y - top;
-                    left = currentMousePosition.X;
+                case ResizeHandle.BottomRight:
+                    left = figure.Position.X + figure.Size.Width - ResizeHandleSize / 2;
+                    top = figure.Position.Y + figure.Size.Height - ResizeHandleSize / 2;
                     break;
             }
 
-            selectedShape.Width = Math.Max(0, width);
-            selectedShape.Height = Math.Max(0, height);
-            Canvas.SetLeft(selectedShape, left);
-            Canvas.SetTop(selectedShape, top);
+            Canvas.SetLeft(handle, left);
+            Canvas.SetTop(handle, top);
 
-            mouseStartPoint = currentMousePosition;
-            UpdateResizeHandlePositions();
+            MainCanvas.Children.Add(handle);
         }
 
-        // Обработчик события MouseWheel для масштабирования фигуры
-        private void DrawingCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
+        private void CreateNewSketch()
         {
-            if (selectedShape != null && Keyboard.IsKeyDown(Key.LeftCtrl))
+            var newSketch = new Sketch
             {
-                double zoomDelta = e.Delta > 0 ? 0.1 : -0.1; // Чувствительность масштабирования
-                zoomFactor += zoomDelta;
-                zoomFactor = Math.Max(0.1, Math.Min(3.0, zoomFactor)); // Ограничиваем масштаб
-
-                selectedShape.Width *= (1 + zoomDelta);
-                selectedShape.Height *= (1 + zoomDelta);
-
-                UpdateResizeHandlePositions(); // Обновляем позицию маркеров
-                e.Handled = true; // Предотвращаем дальнейшую обработку события
-            }
+                Name = $"Sketch {Sketches.Count + 1}",
+                Components = new ObservableCollection<Figure>()
+            };
+            Sketches.Add(newSketch);
+            CurrentSketch = newSketch;
         }
 
-        private void ChangeColor(object sender, RoutedEventArgs e)
+        private void NewSketchButton_Click(object sender, RoutedEventArgs e)
         {
-            currentColor = ((Button)sender).Background as SolidColorBrush;
+            CreateNewSketch();
         }
 
-        private void ColorPicker_SelectedColorChanged(object sender, RoutedPropertyChangedEventArgs<Color?> e)
+        private void SketchList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (e.NewValue.HasValue)
+            if (SketchList.SelectedItem is Sketch selectedSketch)
             {
-                currentColor = new SolidColorBrush(e.NewValue.Value);
+                CurrentSketch = selectedSketch;
             }
         }
 
-        private void ThicknessChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            currentThickness = e.NewValue;
-        }
-
-        private void ClearCanvas(object sender, RoutedEventArgs e)
-        {
-            DrawingCanvas.Children.Clear();
-            ClearSelection();
-        }
-
-        private async void SaveDrawing(object sender, RoutedEventArgs e)
-        {
-            RenderTargetBitmap renderBitmap = new RenderTargetBitmap((int)DrawingCanvas.ActualWidth, (int)DrawingCanvas.ActualHeight, 96d, 96d, PixelFormats.Pbgra32);
-            foreach (var handle in resizeHandles)
-            {
-                if (handle != null) handle.Visibility = Visibility.Collapsed;
-            }
-            renderBitmap.Render(DrawingCanvas);
-            foreach (var handle in resizeHandles)
-            {
-                if (handle != null) handle.Visibility = Visibility.Visible;
-            }
-
-            string folderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Gallery");
-            if (!Directory.Exists(folderPath))
-            {
-                Directory.CreateDirectory(folderPath);
-            }
-
-            string fileName = $"Рисунок_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-            string filePath = System.IO.Path.Combine(folderPath, fileName);
-
-            using (FileStream fileStream = new FileStream(filePath, FileMode.Create))
-            {
-                PngBitmapEncoder encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(renderBitmap));
-                encoder.Save(fileStream);
-            }
-            LoadGallery();
-        }
-
-        private void LoadGallery()
-        {
-            GalleryListBox.Items.Clear();
-            string folderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Gallery");
-            if (Directory.Exists(folderPath))
-            {
-                var files = Directory.GetFiles(folderPath, "*.png");
-                foreach (var file in files)
-                {
-                    Image image = new Image
-                    {
-                        Source = new BitmapImage(new Uri(file)),
-                        Width = 100,
-                        Height = 100,
-                        Margin = new Thickness(5)
-                    };
-
-                    var galleryItem = new GalleryItem
-                    {
-                        Image = image,
-                        FilePath = file
-                    };
-                    GalleryListBox.Items.Add(galleryItem);
-                }
-            }
-        }
-
-        private void GalleryListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (GalleryListBox.SelectedItem is GalleryItem selectedItem)
-            {
-                var filePath = selectedItem.FilePath;
-                byte[] imageData = File.ReadAllBytes(filePath);
-                var imageWindow = new ImageWindow(imageData);
-                openImageWindows.Add(imageWindow);
-                imageWindow.Closed += (s, args) => openImageWindows.Remove(imageWindow);
-                imageWindow.Show();
-            }
-        }
-
-        private void DeleteDrawing(object sender, RoutedEventArgs e)
-        {
-            if (GalleryListBox.SelectedItem is GalleryItem selectedItem)
-            {
-                var filePath = selectedItem.FilePath;
-
-                MessageBoxResult result = MessageBox.Show("Вы уверены, что хотите удалить этот рисунок?", "Подтверждение", MessageBoxButton.YesNo);
-                if (result == MessageBoxResult.Yes)
-                {
-                    try
-                    {
-                        foreach (var window in openImageWindows.ToList())
-                        {
-                            if ((window.DisplayedImage.Source as BitmapImage)?.UriSource?.LocalPath == filePath)
-                            {
-                                window.Close();
-                                openImageWindows.Remove(window);
-                            }
-                        }
-
-                        File.Delete(filePath);
-                        LoadGallery();
-                    }
-                    catch (UnauthorizedAccessException ex)
-                    {
-                        MessageBox.Show($"Нет прав на удаление файла: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"Ошибка при удалении файла: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                    }
-                }
-            }
-            else
-            {
-                MessageBox.Show("Пожалуйста, выберите рисунок для удаления.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-        }
-
-        private void CreateFolder(object sender, RoutedEventArgs e)
-        {
-            string folderName = FolderNameTextBox.Text;
-            if (!string.IsNullOrWhiteSpace(folderName))
-            {
-                string folderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Gallery", folderName);
-                if (!Directory.Exists(folderPath))
-                {
-                    Directory.CreateDirectory(folderPath);
-                }
-            }
-        }
-
-        private void MoveDrawing(object sender, RoutedEventArgs e)
-        {
-            if (GalleryListBox.SelectedItem is GalleryItem selectedItem)
-            {
-                var filePath = selectedItem.FilePath;
-                string folderName = FolderNameTextBox.Text;
-
-                if (!string.IsNullOrWhiteSpace(folderName))
-                {
-                    string newFolderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Gallery", folderName);
-                    if (Directory.Exists(newFolderPath))
-                    {
-                        string newFilePath = System.IO.Path.Combine(newFolderPath, System.IO.Path.GetFileName(filePath));
-                        File.Move(filePath, newFilePath);
-                        LoadGallery();
-                    }
-                }
-            }
+            SaveData();
         }
     }
 
-    public class GalleryItem
+    public class Sketch : INotifyPropertyChanged
     {
-        public Image Image { get; set; }
-        public string FilePath { get; set; }
+        private string _name;
+        private ObservableCollection<Figure> _components = new ObservableCollection<Figure>();
+
+        public string Name
+        {
+            get { return _name; }
+            set
+            {
+                _name = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public ObservableCollection<Figure> Components
+        {
+            get { return _components; }
+            set
+            {
+                _components = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
+
+    public class Figure : INotifyPropertyChanged
+    {
+        private Guid _id;
+        private string _type;
+        private Point _position;
+        private Size _size;
+        private string _color;
+
+        public Guid Id
+        {
+            get { return _id; }
+            set
+            {
+                _id = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string Type
+        {
+            get { return _type; }
+            set
+            {
+                _type = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public Point Position
+        {
+            get { return _position; }
+            set
+            {
+                _position = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public Size Size
+        {
+            get { return _size; }
+            set
+            {
+                _size = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string Color
+        {
+            get { return _color; }
+            set
+            {
+                _color = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
+
+    public class SketchData
+    {
+        public List<Sketch> Sketches { get; set; }
+    }
+
+    public enum ResizeHandle
+    {
+        None,
+        TopLeft,
+        TopRight,
+        BottomLeft,
+        BottomRight
     }
 }
