@@ -15,6 +15,18 @@
         <StackPanel Width="150" Margin="5">
             <Button Content="Новый скетч" Margin="5" Click="NewSketchButton_Click"/>
             <Button Content="Добавить квадрат" Margin="5" Click="AddSquareButton_Click"/>
+
+            <Label Content="Цвет:"/>
+            <ComboBox SelectedValue="{Binding SelectedColor}"
+                      IsEnabled="{Binding IsFigureSelected}" >
+                <ComboBoxItem Content="#4287f5" IsSelected="True" />
+                <ComboBoxItem Content="#FF0000" />
+                <ComboBoxItem Content="#00FF00" />
+                <ComboBoxItem Content="#0000FF" />
+                <ComboBoxItem Content="#FFFF00" />
+                <ComboBoxItem Content="#FF00FF" />
+                <ComboBoxItem Content="#00FFFF" />
+            </ComboBox>
             <ListBox x:Name="SketchList" ItemsSource="{Binding Sketches}" DisplayMemberPath="Name" SelectedItem="{Binding CurrentSketch}" SelectionChanged="SketchList_SelectionChanged"/>
         </StackPanel>
 
