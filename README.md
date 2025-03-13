@@ -1,46 +1,24 @@
-private void UpdateCanvas()
+public string SelectedColor
 {
-    MainCanvas.Children.Clear();
-
-    if (CurrentSketch?.Components != null)
+    get { return _selectedColor; }
+    set
     {
-        foreach (var figure in CurrentSketch.Components)
+        if (IsValidColorString(value))
         {
-            SolidColorBrush brush = Brushes.Black; // Значение по умолчанию
-
-            try
+            _selectedColor = value;
+            OnPropertyChanged();
+            if (SelectedFigure != null)
             {
-                brush = (SolidColorBrush)new BrushConverter().ConvertFromString(figure.Color);
+                SelectedFigure.Color = _selectedColor;
+                UpdateCanvas();
+                SaveData();
             }
-            catch (Exception ex)
-            {
-                // Обработка ошибки преобразования цвета
-                Console.WriteLine($"Ошибка преобразования цвета для фигуры {figure.Id}: {ex.Message}");
-                //Можно установить цвет по умолчанию или пропустить фигуру.
-                //brush = Brushes.Red; // Установите цвет по умолчанию
-            }
-
-            Rectangle rect = new Rectangle
-            {
-                Width = figure.Size.Width,
-                Height = figure.Size.Height,
-                Fill = brush,
-                DataContext = figure
-            };
-
-            rect.MouseDown += Canvas_MouseDown;
-            rect.MouseMove += Canvas_MouseMove;
-            rect.MouseUp += Canvas_MouseUp;
-
-            Canvas.SetLeft(rect, figure.Position.X);
-            Canvas.SetTop(rect, figure.Position.Y);
-
-            MainCanvas.Children.Add(rect);
         }
-
-        if (SelectedFigure != null)
+        else
         {
-            ShowResizeHandles();
+            // Обработка недопустимого значения цвета
+            MessageBox.Show("Недопустимый формат цвета. Используйте формат #RRGGBB или #AARRGGBB.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            // Можно восстановить предыдущее значение или установить значение по умолчанию
         }
     }
 }
