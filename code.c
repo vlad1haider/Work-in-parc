@@ -29,6 +29,7 @@ namespace WpfSketchApp
         private Point _startPoint;
         private bool _isDragging;
         private ResizeHandle _resizingHandle;
+        private string _selectedColor = "#4287f5"; // Default color
 
         public ObservableCollection<Sketch> Sketches
         {
@@ -65,6 +66,7 @@ namespace WpfSketchApp
 
                     _selectedFigure = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsFigureSelected)); // Notify that a figure is selected or not
 
                     if (_selectedFigure != null)
                     {
@@ -73,6 +75,24 @@ namespace WpfSketchApp
                 }
             }
         }
+
+        public string SelectedColor
+        {
+            get { return _selectedColor; }
+            set
+            {
+                _selectedColor = value;
+                OnPropertyChanged();
+                if (SelectedFigure != null)
+                {
+                    SelectedFigure.Color = _selectedColor;
+                    UpdateCanvas(); // Update the canvas to reflect the color change
+                    SaveData();      // Save the data after changing the color
+                }
+            }
+        }
+
+        public bool IsFigureSelected => SelectedFigure != null; // Property to determine if a figure is selected
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -145,7 +165,7 @@ namespace WpfSketchApp
                 Type = "figure",
                 Position = new Point { X = 50, Y = 50 },
                 Size = new Size { Width = DefaultSquareSize, Height = DefaultSquareSize },
-                Color = "#4287f5"
+                Color = SelectedColor // Use the selected color
             };
 
             CurrentSketch.Components.Add(newFigure);
